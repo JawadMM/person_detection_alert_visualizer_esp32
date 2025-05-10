@@ -232,7 +232,6 @@ void loop() {
   }
   
   // Process incoming MQTT messages
-  // Process incoming MQTT messages
   client.loop();
   
   // Check if the detection timeout has elapsed
