@@ -58,6 +58,7 @@ void updateLED(int state) {
 
 void messageHandler(char* topic, byte* payload, unsigned int length) {
   Serial.print("Incoming message on topic: ");
+  Serial.print("Incoming message on topic: ");
   Serial.println(topic);
  
   // Print the payload for debugging
@@ -138,6 +139,10 @@ void connectAWS() {
   Serial.println();
   Serial.print("Connected to WiFi. IP address: ");
   Serial.println(WiFi.localIP());
+  
+  Serial.println();
+  Serial.print("Connected to WiFi. IP address: ");
+  Serial.println(WiFi.localIP());
  
   // Configure WiFiClientSecure to use the AWS IoT device credentials
   net.setCACert(AWS_CERT_CA);
@@ -154,12 +159,15 @@ void connectAWS() {
   client.setCallback(messageHandler);
  
   Serial.println("Connecting to AWS IoT");
+  Serial.println("Connecting to AWS IoT");
  
+  while (!client.connect(THINGNAME)) {
   while (!client.connect(THINGNAME)) {
     Serial.print(".");
     delay(100);
   }
  
+  if (!client.connected()) {
   if (!client.connected()) {
     Serial.println("AWS IoT Timeout!");
     return;
@@ -204,6 +212,10 @@ void setup() {
   updateLED(LED_OFF);
   
   // Connect to AWS IoT
+  // Turn off LED initially
+  updateLED(LED_OFF);
+  
+  // Connect to AWS IoT
   connectAWS();
   
   // Start with green (no detection)
@@ -215,9 +227,11 @@ void loop() {
   if (!client.connected()) {
     Serial.println("AWS IoT disconnected. Reconnecting...");
     updateLED(LED_OFF);
+    updateLED(LED_OFF);
     connectAWS();
   }
   
+  // Process incoming MQTT messages
   // Process incoming MQTT messages
   client.loop();
   
