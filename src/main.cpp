@@ -9,12 +9,17 @@
 #define GREEN_PIN 26
 #define BLUE_PIN 25
 
+// Topic to subscribe to
+#define AWS_IOT_SUBSCRIBE_TOPIC "person-detection/alerts"
 
 // LED states
 #define LED_OFF 0
 #define LED_RED 1
 #define LED_GREEN 2
 #define LED_BLUE 3
+
+// Confidence threshold for person detection
+#define PERSON_CONFIDENCE_THRESHOLD 0.7
 
 // Increase MQTT buffer size to handle larger messages
 #define MQTT_MAX_PACKET_SIZE 2048
@@ -57,7 +62,9 @@ void updateLED(int state) {
 }
 
 void messageHandler(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Incoming message on topic: ");
+  // Record receive time for latency calculation
+  unsigned long receiveTime = millis();
+  
   Serial.print("Incoming message on topic: ");
   Serial.println(topic);
  
@@ -93,32 +100,75 @@ void messageHandler(char* topic, byte* payload, unsigned int length) {
   Serial.print("Detection count: ");
   Serial.println(detectionCount);
   
-  // Turn on red LED when people are detected
-  if (detectionCount > 0) {
-    // People detected - turn on RED LED
-    updateLED(LED_RED);
-    // Update the last detection time
-    lastDetectionTime = millis();
-    Serial.println("People detected! Setting LED to RED");
-    Serial.println("LED will return to GREEN in 5 seconds");
-    
+  // Get the detections array
+  JsonArray detections = doc["detections"];
+  
+  // Flag to track if at least one detection is a confident person
+  bool personDetected = false;
+  float highestConfidence = 0.0;
+  
+  // Only proceed if there are detections
+  if (detectionCount > 0 && detections.size() > 0) {
     // Print details of the detections
-    JsonArray detections = doc["detections"];
     Serial.print("Number of detections: ");
     Serial.println(detections.size());
     
+    // Check each detection
     for (int i = 0; i < detections.size(); i++) {
+      int trackId = detections[i]["track_id"];
+      float confidence = detections[i]["confidence"];
+      
       Serial.print("  Detection #");
       Serial.print(i + 1);
       Serial.print(": ID=");
-      Serial.print((int)detections[i]["track_id"]);
+      Serial.print(trackId);
       Serial.print(", Confidence=");
-      Serial.println((float)detections[i]["confidence"]);
+      Serial.println(confidence);
+      
+      // Track highest confidence seen
+      if (confidence > highestConfidence) {
+        highestConfidence = confidence;
+      }
+      
+      // If this is a detection with confidence > threshold, mark as person detected
+      if (confidence > PERSON_CONFIDENCE_THRESHOLD) {
+        personDetected = true;
+      }
+    }
+    
+    // Only turn LED red if a person was detected with sufficient confidence
+    if (personDetected) {
+      // Calculate processing time
+      unsigned long processingTime = millis() - receiveTime;
+      
+      // Person detected - turn on RED LED
+      updateLED(LED_RED);
+      
+      // Update the last detection time
+      lastDetectionTime = millis();
+      
+      Serial.print("Person detected with confidence above threshold (");
+      Serial.print(PERSON_CONFIDENCE_THRESHOLD);
+      Serial.println(")! Setting LED to RED");
+      Serial.print("Highest confidence: ");
+      Serial.println(highestConfidence);
+      Serial.print("Processing time: ");
+      Serial.print(processingTime);
+      Serial.println("ms");
+      Serial.println("LED will return to GREEN in 5 seconds");
+    } else {
+      // Detections exist but none are confident enough to be a person
+      updateLED(LED_GREEN);
+      Serial.print("Detections found but confidence (");
+      Serial.print(highestConfidence);
+      Serial.print(") is below threshold (");
+      Serial.print(PERSON_CONFIDENCE_THRESHOLD);
+      Serial.println("). LED remains GREEN.");
     }
   } else {
-    // No people detected - turn on GREEN LED
+    // No detections - turn on GREEN LED
     updateLED(LED_GREEN);
-    Serial.println("No people detected. Setting LED to GREEN");
+    Serial.println("No detections found. Setting LED to GREEN");
   }
   
   // Clean up
@@ -139,10 +189,6 @@ void connectAWS() {
   Serial.println();
   Serial.print("Connected to WiFi. IP address: ");
   Serial.println(WiFi.localIP());
-  
-  Serial.println();
-  Serial.print("Connected to WiFi. IP address: ");
-  Serial.println(WiFi.localIP());
  
   // Configure WiFiClientSecure to use the AWS IoT device credentials
   net.setCACert(AWS_CERT_CA);
@@ -159,15 +205,12 @@ void connectAWS() {
   client.setCallback(messageHandler);
  
   Serial.println("Connecting to AWS IoT");
-  Serial.println("Connecting to AWS IoT");
  
-  while (!client.connect(THINGNAME)) {
   while (!client.connect(THINGNAME)) {
     Serial.print(".");
     delay(100);
   }
  
-  if (!client.connected()) {
   if (!client.connected()) {
     Serial.println("AWS IoT Timeout!");
     return;
@@ -201,7 +244,7 @@ void setup() {
   Serial.begin(115200);
   delay(1000); // Give time for serial to connect
   Serial.println("\n\n=== ESP32 Person Detection Alert System ===");
-  Serial.println("With 5-second detection timeout");
+  Serial.println("With person confidence threshold of " + String(PERSON_CONFIDENCE_THRESHOLD));
   
   // Initialize RGB LED pins
   pinMode(RED_PIN, OUTPUT);
@@ -212,21 +255,18 @@ void setup() {
   updateLED(LED_OFF);
   
   // Connect to AWS IoT
-  // Turn off LED initially
-  updateLED(LED_OFF);
-  
-  // Connect to AWS IoT
   connectAWS();
   
   // Start with green (no detection)
   updateLED(LED_GREEN);
+  
+  Serial.println("System ready - waiting for detections...");
 }
  
 void loop() {
   // Ensure we're still connected to AWS IoT
   if (!client.connected()) {
     Serial.println("AWS IoT disconnected. Reconnecting...");
-    updateLED(LED_OFF);
     updateLED(LED_OFF);
     connectAWS();
   }
